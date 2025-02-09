@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "Availability Slots",
+  "version": "1.0",
+  "description": "Generate availability slots from your calendar for easy sharing",
+  "permissions": [
+    "contextMenus",
+    "storage",
+    "identity",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://www.googleapis.com/",
+    "*://*.google.com/*",
+    "*://*.outlook.com/*"
+  ],
+  "oauth2": {
+    "client_id": "${YOUR_CLIENT_ID}",
+    "scopes": [
+      "https://www.googleapis.com/auth/calendar.readonly"
+    ]
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.google.com/*", "*://*.outlook.com/*"],
+      "js": ["content.js"]
+    }
+  ],
+  "options_page": "options.html"
+} 
