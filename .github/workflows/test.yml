@@ -1,0 +1,71 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - '**.js'
+      - '**.json'
+      - '.github/workflows/**'
+      - 'package.json'
+      - 'jest.setup.js'
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - '**.js'
+      - '**.json'
+      - '.github/workflows/**'
+      - 'package.json'
+      - 'jest.setup.js'
+
+# Cancel in-progress runs when a new workflow with the same ref is triggered
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [20.x] # Only use latest LTS version for faster builds
+      fail-fast: true # Stop all matrix jobs if one fails
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 1 # Shallow clone for faster checkout
+    
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+    
+    - name: Cache node_modules
+      uses: actions/cache@v4
+      id: cache-node-modules
+      with:
+        path: |
+          node_modules
+          .jest-cache
+        key: ${{ runner.os }}-node-${{ matrix.node-version }}-${{ hashFiles('**/package.json') }}
+        restore-keys: |
+          ${{ runner.os }}-node-${{ matrix.node-version }}-
+    
+    - name: Install dependencies
+      if: steps.cache-node-modules.outputs.cache-hit != 'true'
+      run: npm ci --prefer-offline --no-audit
+      
+    - name: Run tests
+      run: npm run test:ci
+      
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v4
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        file: ./coverage/lcov.info
+        flags: unittests
+        name: codecov-umbrella
+      if: success() # Only upload coverage if tests pass 

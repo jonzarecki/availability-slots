@@ -1,0 +1,45 @@
+{
+  "name": "availability-slots",
+  "version": "1.0.0",
+  "description": "Chrome extension to generate availability slots from your calendar",
+  "scripts": {
+    "test": "jest --coverage",
+    "test:watch": "jest --watch",
+    "test:ci": "jest --coverage --ci --runInBand",
+    "clean": "node -e \"require('fs').rmSync('coverage', { recursive: true, force: true })\""
+  },
+  "devDependencies": {
+    "@jest/globals": "^27.5.1",
+    "jest": "^27.5.1",
+    "jest-chrome": "^0.8.0",
+    "jest-environment-jsdom": "^27.5.1"
+  },
+  "jest": {
+    "testEnvironment": "jsdom",
+    "setupFiles": [
+      "./jest.setup.js"
+    ],
+    "moduleDirectories": [
+      "node_modules"
+    ],
+    "testPathIgnorePatterns": [
+      "/node_modules/"
+    ],
+    "clearMocks": true,
+    "collectCoverage": true,
+    "coverageDirectory": "coverage",
+    "coverageReporters": [
+      "text",
+      "lcov"
+    ],
+    "coveragePathIgnorePatterns": [
+      "/node_modules/"
+    ],
+    "verbose": false,
+    "silent": true,
+    "maxWorkers": "50%",
+    "testTimeout": 10000,
+    "cache": true,
+    "cacheDirectory": ".jest-cache"
+  }
+} 
