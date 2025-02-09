@@ -53,13 +53,4 @@ jobs:
       run: npm ci --prefer-offline --no-audit
       
     - name: Run tests
-      run: npm run test:ci
-      
-    - name: Upload coverage reports
-      uses: codecov/codecov-action@v4
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        file: ./coverage/lcov.info
-        flags: unittests
-        name: codecov-umbrella
-      if: success() # Only upload coverage if tests pass 
+      run: npm run test:ci 
