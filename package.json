@@ -11,8 +11,13 @@
   "devDependencies": {
     "@jest/globals": "^27.5.1",
     "jest": "^27.5.1",
+    "@types/chrome": "^0.0.260",
     "jest-chrome": "^0.8.0",
     "jest-environment-jsdom": "^27.5.1"
+  },
+  "overrides": {
+    "glob": "^9.3.5",
+    "rimraf": "^5.0.5"
   },
   "jest": {
     "testEnvironment": "jsdom",

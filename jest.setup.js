@@ -2,8 +2,11 @@ const chrome = require('jest-chrome');
 
 // Use modern global assignment
 globalThis.chrome = chrome;
+
+// Use native performance API
+const startTime = process.hrtime.bigint();
 globalThis.performance = {
-  now: () => Date.now(),
+  now: () => Number(process.hrtime.bigint() - startTime) / 1e6,
   timeOrigin: Date.now()
 };
 
@@ -64,6 +67,32 @@ global.fetch = jest.fn(() =>
   })
 );
 
-// Mock native APIs that might be used
-globalThis.atob = str => Buffer.from(str, 'base64').toString('binary');
-globalThis.btoa = str => Buffer.from(str, 'binary').toString('base64'); 
+// Use native base64 encoding/decoding
+if (typeof globalThis.btoa === 'undefined') {
+  globalThis.btoa = str => Buffer.from(str).toString('base64');
+}
+
+if (typeof globalThis.atob === 'undefined') {
+  globalThis.atob = str => Buffer.from(str, 'base64').toString();
+}
+
+// Mock DOMException using native Error
+if (typeof globalThis.DOMException === 'undefined') {
+  globalThis.DOMException = class DOMException extends Error {
+    constructor(message, name) {
+      super(message);
+      this.name = name || 'Error';
+      this.code = 0;
+    }
+  };
+}
+
+// Mock URL API if needed
+if (typeof globalThis.URL === 'undefined') {
+  globalThis.URL = class URL {
+    constructor(url, base) {
+      const fullUrl = base ? new URL(base).href + url : url;
+      Object.assign(this, new URL(fullUrl));
+    }
+  };
+} 
