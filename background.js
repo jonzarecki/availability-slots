@@ -335,4 +335,16 @@ function formatTimeSlot(start, end) {
     hour: 'numeric',
     minute: '2-digit'
   })}`;
+}
+
+// Export functions for testing
+if (typeof module !== 'undefined' && module.exports) {
+  const exportedFunctions = {
+    findAvailableSlots: (events, duration, startDate, days) => findAvailableSlots(events, duration, startDate, days),
+    formatTimeSlot: (start, end) => formatTimeSlot(start, end),
+    getAvailabilitySlots: (request, sendResponse) => getAvailabilitySlots(request, sendResponse),
+    checkAuthStatus: (sendResponse) => checkAuthStatus(sendResponse),
+    getCalendarList: (sendResponse) => getCalendarList(sendResponse)
+  };
+  module.exports = exportedFunctions;
 } 

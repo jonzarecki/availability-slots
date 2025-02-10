@@ -56,6 +56,7 @@ The extension is built using:
 - Manifest V3
 - Google Calendar API
 - Chrome Extension APIs (identity, storage, contextMenus)
+- Jest for testing
 
 ### Files Structure
 
@@ -64,6 +65,38 @@ The extension is built using:
 - `options.html/js`: Calendar settings page
 - `background.js`: Background service worker
 - `content.js`: Content script for webpage integration
+- `tests/`: Test files
+  - `integration/`: Integration tests
+  - `jest.setup.js`: Jest configuration and mocks
+
+### Testing
+
+The project uses Jest for testing:
+```bash
+# Run tests with coverage
+npm test
+
+# Run tests in watch mode
+npm run test:watch
+
+# Run tests for CI
+npm run test:ci
+```
+
+Tests are automatically run on GitHub Actions for every push and pull request.
+Coverage reports are automatically uploaded to Codecov.
+
+### Development Setup
+
+1. Clone the repository
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Run tests to verify setup:
+   ```bash
+   npm test
+   ```
 
 ## Privacy
 

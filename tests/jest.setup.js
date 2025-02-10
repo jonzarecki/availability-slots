@@ -37,7 +37,9 @@ chrome.runtime = {
   onMessage: {
     addListener: jest.fn()
   },
-  getURL: jest.fn()
+  getURL: jest.fn(),
+  sendMessage: jest.fn(),
+  lastError: null
 };
 
 // Mock chrome.contextMenus
@@ -95,4 +97,20 @@ if (typeof globalThis.URL === 'undefined') {
       Object.assign(this, new URL(fullUrl));
     }
   };
-} 
+}
+
+// Mock Intl.DateTimeFormat
+const mockTimeZone = 'America/New_York';
+global.Intl = {
+  DateTimeFormat: () => ({
+    resolvedOptions: () => ({
+      timeZone: mockTimeZone
+    })
+  })
+};
+
+// Reset all mocks before each test
+beforeEach(() => {
+  jest.clearAllMocks();
+  chrome.runtime.lastError = null;
+}); 

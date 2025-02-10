@@ -8,7 +8,7 @@ on:
       - '**.json'
       - '.github/workflows/**'
       - 'package.json'
-      - 'jest.setup.js'
+      - 'tests/**'
   pull_request:
     branches: [ main, master ]
     paths:
@@ -16,7 +16,7 @@ on:
       - '**.json'
       - '.github/workflows/**'
       - 'package.json'
-      - 'jest.setup.js'
+      - 'tests/**'
 
 # Cancel in-progress runs when a new workflow with the same ref is triggered
 concurrency:
@@ -26,6 +26,7 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 5  # Add timeout to match our local test timeout
     
     steps:
     - uses: actions/checkout@v4
@@ -36,21 +37,10 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: 'lts/*'
-    
-    - name: Cache dependencies
-      uses: actions/cache@v4
-      id: npm-cache
-      with:
-        path: |
-          node_modules
-          .jest-cache
-        key: ${{ runner.os }}-npm-${{ hashFiles('package-lock.json') }}
-        restore-keys: |
-          ${{ runner.os }}-npm-
+        cache: 'npm' # Enable built-in npm caching
     
     - name: Install dependencies
-      if: steps.npm-cache.outputs.cache-hit != 'true'
       run: npm ci --prefer-offline --no-audit
       
     - name: Run tests
-      run: npm run test:ci 
+      run: npm run test:ci
