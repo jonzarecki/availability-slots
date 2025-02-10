@@ -92,6 +92,33 @@
       background-color: #fce8e6;
       color: #c5221f;
     }
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      padding: 12px 24px;
+      background-color: #323232;
+      color: white;
+      border-radius: 4px;
+      font-size: 14px;
+      opacity: 0;
+      transform: translateY(100%);
+      transition: all 0.3s ease;
+      z-index: 1000;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .toast.success {
+      background-color: #43a047;
+    }
+
+    .toast.error {
+      background-color: #d32f2f;
+    }
   </style>
 </head>
 <body>
@@ -163,6 +190,8 @@
 
     <button id="save">Save Settings</button>
   </div>
+  
+  <div id="toast" class="toast"></div>
   <script src="options.js"></script>
 </body>
 </html> 

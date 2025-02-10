@@ -3,14 +3,32 @@ document.addEventListener('DOMContentLoaded', async function() {
   const openOptionsButton = document.getElementById('openOptions');
   const copyStatus = document.getElementById('copyStatus');
 
-  // Generate availability immediately when popup opens
+  // Check authentication status first
   try {
+    const authResponse = await chrome.runtime.sendMessage({ action: 'checkAuth' });
+    
+    if (!authResponse.isAuthenticated) {
+      console.log('Not authenticated, requesting authorization...');
+      const authResult = await chrome.runtime.sendMessage({ action: 'authorize' });
+      
+      if (!authResult.success) {
+        throw new Error(authResult.error || 'Authorization failed');
+      }
+    }
+
+    // Now that we're authenticated, get availability
     // Get settings from storage
     const settings = await chrome.storage.sync.get([
       'duration',
       'days',
-      'bookingLink'
+      'bookingLink',
+      'selectedCalendars'
     ]);
+
+    // Check if calendars are selected
+    if (!settings.selectedCalendars || settings.selectedCalendars.length === 0) {
+      throw new Error('No calendars selected. Please go to extension settings and select at least one calendar.');
+    }
 
     // Use default values if not set
     const duration = settings.duration || 30;
@@ -28,7 +46,14 @@ document.addEventListener('DOMContentLoaded', async function() {
     });
 
     if (response.error) {
-      availabilityText.value = `Error: ${response.error}`;
+      throw new Error(response.error);
+    }
+
+    if (!response.slots || response.slots.length === 0) {
+      availabilityText.value = `No availability found in the next ${days} days for a ${duration} minute meeting.\n\n`;
+      if (bookingLink) {
+        availabilityText.value += `Please use my booking page for more options:\n${bookingLink}`;
+      }
       return;
     }
 
@@ -55,7 +80,8 @@ document.addEventListener('DOMContentLoaded', async function() {
     }, 2000);
 
   } catch (error) {
-    availabilityText.value = `Error: ${error.message}`;
+    console.error('Error:', error);
+    availabilityText.value = `Error: ${error.message}\n\nPlease try:\n1. Click the extension icon again\n2. Make sure you're signed into Chrome with your Google account\n3. Go to extension settings and select your calendars`;
   }
 
   // Add click handler for the settings button
@@ -73,14 +99,15 @@ document.addEventListener('DOMContentLoaded', async function() {
       }, 2000);
     }
   });
+});
 
-  async function copyToClipboard(text) {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch (err) {
-      // Fallback for older browsers
-      availabilityText.select();
-      document.execCommand('copy');
-    }
+async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (err) {
+    // Fallback for older browsers
+    const textarea = document.getElementById('availabilityText');
+    textarea.select();
+    document.execCommand('copy');
   }
-}); 
+} 

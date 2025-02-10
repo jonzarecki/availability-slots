@@ -15,7 +15,7 @@
     "*://*.outlook.com/*"
   ],
   "oauth2": {
-    "client_id": "${YOUR_CLIENT_ID}",
+    "client_id": "690366129283-srblone8r8ats4d1lt57026c3dsgo7b8.apps.googleusercontent.com",
     "scopes": [
       "https://www.googleapis.com/auth/calendar.readonly"
     ]

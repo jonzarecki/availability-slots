@@ -56,6 +56,21 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   });
 
+  function showToast(message, type = 'success') {
+    const toast = document.getElementById('toast');
+    toast.textContent = message;
+    toast.className = `toast ${type}`;
+    
+    // Force a reflow to trigger the animation
+    toast.offsetHeight;
+    
+    toast.classList.add('show');
+    
+    setTimeout(() => {
+      toast.classList.remove('show');
+    }, 3000);
+  }
+
   saveButton.addEventListener('click', function() {
     // Get all selected calendars
     const selectedCalendars = Array.from(document.querySelectorAll('.calendar-item input[type="checkbox"]:checked'))
@@ -63,6 +78,11 @@ document.addEventListener('DOMContentLoaded', function() {
         id: checkbox.dataset.calendarId,
         name: checkbox.dataset.calendarName
       }));
+
+    if (selectedCalendars.length === 0) {
+      showToast('Please select at least one calendar', 'error');
+      return;
+    }
 
     // Save all settings
     chrome.storage.sync.set({
@@ -74,11 +94,11 @@ document.addEventListener('DOMContentLoaded', function() {
       days: daysSelect.value,
       bookingLink: bookingLinkInput.value
     }, function() {
-      const status = document.createElement('div');
-      status.textContent = 'Settings saved successfully!';
-      status.className = 'status success';
-      saveButton.parentNode.insertBefore(status, saveButton.nextSibling);
-      setTimeout(() => status.remove(), 3000);
+      if (chrome.runtime.lastError) {
+        showToast('Error saving settings: ' + chrome.runtime.lastError.message, 'error');
+      } else {
+        showToast('Settings saved successfully!');
+      }
     });
   });
 

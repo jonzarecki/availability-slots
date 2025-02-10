@@ -17,46 +17,172 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
 // Handle messages from popup and options pages
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  console.log('Received message:', request.action);
   switch (request.action) {
     case 'authorize':
+      console.log('Starting authorization process...');
       handleAuthorization(sendResponse);
       return true;
     case 'checkAuth':
+      console.log('Checking auth status...');
       checkAuthStatus(sendResponse);
       return true;
     case 'getCalendars':
+      console.log('Getting calendar list...');
       getCalendarList(sendResponse);
       return true;
     case 'getAvailability':
+      console.log('Getting availability slots...');
       getAvailabilitySlots(request, sendResponse);
       return true;
   }
 });
 
-async function handleAuthorization(sendResponse) {
+async function clearTokens() {
+  console.log('Clearing tokens...');
   try {
-    const token = await chrome.identity.getAuthToken({ interactive: true });
+    const details = await new Promise((resolve, reject) => {
+      chrome.identity.getAuthToken({ interactive: false }, (token) => {
+        if (chrome.runtime.lastError) {
+          reject(chrome.runtime.lastError);
+        } else {
+          resolve({ token });
+        }
+      });
+    });
+
+    if (details.token) {
+      console.log('Found existing token, removing...');
+      await new Promise((resolve) => {
+        chrome.identity.removeCachedAuthToken({ token: details.token }, resolve);
+      });
+      console.log('Token removed');
+    }
+  } catch (error) {
+    console.log('No existing token to clear:', error.message);
+  }
+}
+
+async function handleAuthorization(sendResponse) {
+  console.log('Starting handleAuthorization...');
+  try {
+    console.log('Clearing existing tokens...');
+    await clearTokens();
+    
+    console.log('Requesting new token...');
+    const token = await new Promise((resolve, reject) => {
+      chrome.identity.getAuthToken({ 
+        interactive: true 
+      }, (token) => {
+        if (chrome.runtime.lastError) {
+          reject(chrome.runtime.lastError);
+        } else {
+          resolve(token);
+        }
+      });
+    });
+    
+    console.log('Received new token:', !!token);
+    
+    console.log('Verifying token with API call...');
+    const response = await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList', {
+      headers: { 
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/json'
+      }
+    });
+    
+    console.log('API response status:', response.status);
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(`Token validation failed: ${errorData.error?.message || response.status}`);
+    }
+    
+    console.log('Authorization successful');
     sendResponse({ success: true });
   } catch (error) {
-    sendResponse({ success: false, error: error.message });
+    console.error('Authorization failed:', error);
+    console.log('Error details:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
+    await clearTokens();
+    sendResponse({ 
+      success: false, 
+      error: error.message,
+      details: 'Please try these steps:\n1. Go to chrome://extensions\n2. Remove the extension\n3. Install it again\n4. Make sure you are signed into Chrome with your Google account'
+    });
   }
 }
 
 async function checkAuthStatus(sendResponse) {
+  console.log('Checking auth status...');
   try {
-    const token = await chrome.identity.getAuthToken({ interactive: false });
+    console.log('Getting token...');
+    const token = await new Promise((resolve, reject) => {
+      chrome.identity.getAuthToken({ interactive: false }, (token) => {
+        if (chrome.runtime.lastError) {
+          reject(chrome.runtime.lastError);
+        } else {
+          resolve(token);
+        }
+      });
+    });
+    
+    console.log('Token received:', !!token);
+    
+    console.log('Verifying token...');
+    const response = await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList', {
+      headers: { 
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/json'
+      }
+    });
+    
+    console.log('Verification response status:', response.status);
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(`Invalid token: ${errorData.error?.message || response.status}`);
+    }
+    
+    console.log('Auth status check successful');
     sendResponse({ isAuthenticated: true });
   } catch (error) {
+    console.error('Auth check failed:', error);
+    console.log('Error details:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
+    await clearTokens();
     sendResponse({ isAuthenticated: false, error: error.message });
   }
 }
 
 async function getCalendarList(sendResponse) {
   try {
-    const token = await chrome.identity.getAuthToken({ interactive: false });
-    const response = await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList', {
-      headers: { Authorization: `Bearer ${token}` }
+    const token = await new Promise((resolve, reject) => {
+      chrome.identity.getAuthToken({ interactive: false }, (token) => {
+        if (chrome.runtime.lastError) {
+          reject(chrome.runtime.lastError);
+        } else {
+          resolve(token);
+        }
+      });
     });
+
+    const response = await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList', {
+      headers: { 
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/json'
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to fetch calendars');
+    }
+    
     const data = await response.json();
     sendResponse({ calendars: data.items });
   } catch (error) {
@@ -66,7 +192,16 @@ async function getCalendarList(sendResponse) {
 
 async function getAvailabilitySlots(request, sendResponse) {
   try {
-    const token = await chrome.identity.getAuthToken({ interactive: false });
+    const token = await new Promise((resolve, reject) => {
+      chrome.identity.getAuthToken({ interactive: false }, (token) => {
+        if (chrome.runtime.lastError) {
+          reject(chrome.runtime.lastError);
+        } else {
+          resolve(token);
+        }
+      });
+    });
+
     const { duration, days } = request;
 
     // Get selected calendars and settings
@@ -92,9 +227,22 @@ async function getAvailabilitySlots(request, sendResponse) {
       const response = await fetch(
         `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendar.id)}/events?` +
         `timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json'
+        }
       });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch calendar events: ${response.status}`);
+      }
+      
       const data = await response.json();
+      
+      if (!data.items) {
+        console.warn(`No items found for calendar ${calendar.name}`);
+        continue;
+      }
       
       // Filter events based on settings
       const filteredEvents = data.items.filter(event => {
@@ -117,9 +265,14 @@ async function getAvailabilitySlots(request, sendResponse) {
     // Find available slots
     const availableSlots = findAvailableSlots(allEvents, duration, now, days);
     
-    sendResponse({ slots: availableSlots });
+    if (!availableSlots || availableSlots.length === 0) {
+      sendResponse({ slots: [], message: 'No available slots found in the selected time range.' });
+    } else {
+      sendResponse({ slots: availableSlots });
+    }
   } catch (error) {
-    sendResponse({ error: error.message });
+    console.error('Error in getAvailabilitySlots:', error);
+    sendResponse({ error: error.message, slots: [] });
   }
 }
 
