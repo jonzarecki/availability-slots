@@ -46,8 +46,8 @@ describe('Popup Tests', () => {
     });
 
     // Mock chrome storage
-    chrome.storage.sync.get.mockImplementation((keys, callback) => {
-      callback({
+    chrome.storage.sync.get.mockImplementation((keys) => {
+      return Promise.resolve({
         duration: '30',
         days: '5',
         bookingLink: 'https://calendly.com/example',
@@ -63,8 +63,14 @@ describe('Popup Tests', () => {
         case 'getAvailability':
           return Promise.resolve({
             slots: [
-              'Mon Mar 25, 9:00 AM - 9:30 AM EDT',
-              'Mon Mar 25, 10:00 AM - 10:30 AM EDT'
+              {
+                start: new Date('2024-03-25T09:00:00'),
+                end: new Date('2024-03-25T09:30:00')
+              },
+              {
+                start: new Date('2024-03-25T13:00:00'),
+                end: new Date('2024-03-25T13:30:00')
+              }
             ]
           });
         default:
@@ -139,7 +145,52 @@ describe('Popup Tests', () => {
   });
 
   describe('Availability Generation', () => {
-    it.skip('should format and display availability slots', async () => {
+    it('should format and display availability slots', async () => {
+      // Mock storage settings
+      chrome.storage.sync.get.mockResolvedValue({
+        duration: 30,
+        days: 5,
+        selectedCalendars: ['primary'],
+        bookingLink: 'https://calendly.com/test'
+      });
+
+      // Mock successful auth check and diverse availability slots
+      chrome.runtime.sendMessage.mockImplementation((message) => {
+        if (message.action === 'checkAuth') {
+          return Promise.resolve({ isAuthenticated: true });
+        }
+        if (message.action === 'getAvailability') {
+          return Promise.resolve({
+            slots: [
+              // Day 1 slots
+              {
+                start: new Date('2024-03-25T09:00:00'),
+                end: new Date('2024-03-25T09:30:00')
+              },
+              {
+                start: new Date('2024-03-25T13:00:00'),
+                end: new Date('2024-03-25T13:30:00')
+              },
+              // Day 2 slots
+              {
+                start: new Date('2024-03-26T10:00:00'),
+                end: new Date('2024-03-26T10:30:00')
+              },
+              {
+                start: new Date('2024-03-26T15:00:00'),
+                end: new Date('2024-03-26T15:30:00')
+              },
+              // Day 3 slots
+              {
+                start: new Date('2024-03-27T11:00:00'),
+                end: new Date('2024-03-27T11:30:00')
+              }
+            ]
+          });
+        }
+        return Promise.resolve({});
+      });
+
       // Load popup.js to register event listeners
       jest.isolateModules(() => {
         require('../popup');
@@ -151,12 +202,30 @@ describe('Popup Tests', () => {
       )[1];
       await contentLoadedCallback();
 
-      expect(mockDocument.availabilityText.value).toContain('Would any of these time windows work');
-      expect(mockDocument.availabilityText.value).toContain('Mon Mar 25, 9:00 AM');
-      expect(mockDocument.availabilityText.value).toContain('https://calendly.com/example');
+      // Wait for async operations to complete
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      // Verify diverse slot distribution
+      const text = mockDocument.availabilityText.value;
+      expect(text).toContain('Would any of these time windows work for a 30 minute meeting');
+      
+      // Check for slots from different days
+      expect(text).toMatch(/Mon,? Mar 25,? 9:00 AM - 9:30 AM/);
+      expect(text).toMatch(/Mon,? Mar 25,? 1:00 PM - 1:30 PM/);
+      expect(text).toMatch(/Tue,? Mar 26,? 10:00 AM - 10:30 AM/);
+      expect(text).toMatch(/Tue,? Mar 26,? 3:00 PM - 3:30 PM/);
+      expect(text).toMatch(/Wed,? Mar 27,? 11:00 AM - 11:30 AM/);
     });
 
-    it.skip('should handle no availability found', async () => {
+    it('should handle no availability found', async () => {
+      // Mock storage settings
+      chrome.storage.sync.get.mockResolvedValue({
+        duration: 30,
+        days: 5,
+        selectedCalendars: ['primary'],
+        bookingLink: 'https://calendly.com/example'
+      });
+
       // Mock no slots returned
       chrome.runtime.sendMessage
         .mockImplementationOnce(() => Promise.resolve({ isAuthenticated: true }))
@@ -173,7 +242,10 @@ describe('Popup Tests', () => {
       )[1];
       await contentLoadedCallback();
 
-      expect(mockDocument.availabilityText.value).toContain('No availability found');
+      // Wait for async operations to complete
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(mockDocument.availabilityText.value).toContain('No availability found in the next 5 days');
       expect(mockDocument.availabilityText.value).toContain('https://calendly.com/example');
     });
 

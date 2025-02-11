@@ -275,7 +275,6 @@ async function getAvailabilitySlots(request, sendResponse) {
     const settingsStartTime = performance.now();
     const settings = await chrome.storage.sync.get([
       'selectedCalendars',
-      'includeNoParticipants',
       'includeNoLocation',
       'includeAllDay'
     ]);
@@ -333,8 +332,9 @@ async function getAvailabilitySlots(request, sendResponse) {
     // Combine and filter all events
     const allEvents = calendarResults.flat().filter(event => {
       if (!settings.includeAllDay && event.start.date) return false;
-      if (!settings.includeNoParticipants && (!event.attendees || event.attendees.length === 0)) return false;
       if (!settings.includeNoLocation && !event.location && !event.hangoutLink) return false;
+      // Only consider events marked as busy (transparency is undefined or 'opaque')
+      if (event.transparency === 'transparent') return false;
       return true;
     });
 
@@ -348,7 +348,7 @@ async function getAvailabilitySlots(request, sendResponse) {
 
     // Time slot finding
     const slotFindingStartTime = performance.now();
-    const availableSlots = findAvailableSlots(allEvents, duration, now, days);
+    const availableSlots = findAvailableSlots(allEvents, duration, now, days, settings);
     logTime('Finding available slots', slotFindingStartTime);
     
     const totalDuration = logTime('Total execution time', totalStartTime);
@@ -377,42 +377,67 @@ async function getAvailabilitySlots(request, sendResponse) {
   }
 }
 
-function findAvailableSlots(events, duration, startDate, days) {
+function findAvailableSlots(events = [], duration = 30, startDate = new Date(), days = 5, settings = {}) {
+  // Default settings
+  const defaultSettings = {
+    includeAllDay: false,
+    includeNoLocation: true
+  };
+  settings = { ...defaultSettings, ...settings };
+
   const slotStartTime = performance.now();
-  const slots = [];
+  const slotsByDay = new Map(); // Group slots by day
   const durationMs = duration * 60 * 1000;
+  startDate = new Date(startDate); // Ensure startDate is a Date object
   const endDate = new Date(startDate.getTime() + days * 24 * 60 * 60 * 1000);
   
   // Working hours: 9 AM to 5 PM
   const workingHourStart = 9;
   const workingHourEnd = 17;
+  
+  // Calculate max slots based on duration and days
+  const slotsPerDay = Math.floor((workingHourEnd - workingHourStart) * 60 / duration);
+  const MAX_SLOTS_PER_DAY = Math.max(2, Math.min(Math.floor(slotsPerDay / 2), 6)); // At least 2, at most 6 slots per day, scaled by duration
+  const MAX_TOTAL_SLOTS = Math.max(4, Math.min(MAX_SLOTS_PER_DAY * days, 16)); // At least 4, at most 16 total slots
 
   // Time event preprocessing
   const preprocessStartTime = performance.now();
-  const eventRanges = events
-    .filter(event => {
-      // Skip events with missing or invalid dates
+  const eventRanges = (events || [])
+    .filter(event => event && event.start && event.end) // Filter out malformed events
+    .map(event => {
       try {
-        const start = event.start?.dateTime || event.start?.date;
-        const end = event.end?.dateTime || event.end?.date;
-        if (!start || !end) return false;
-        const startDate = new Date(start);
-        const endDate = new Date(end);
-        return !isNaN(startDate) && !isNaN(endDate);
-      } catch (e) {
-        return false;
+        const start = new Date(event.start.dateTime || event.start.date);
+        const end = new Date(event.end.dateTime || event.end.date);
+        if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+        return { start, end, event }; // Include original event for filtering
+      } catch (error) {
+        console.warn('Error processing event:', error);
+        return null;
       }
     })
-    .map(event => {
-      const start = new Date(event.start.dateTime || event.start.date);
-      const end = new Date(event.end.dateTime || event.end.date);
-      return { start, end };
+    .filter(range => range !== null) // Remove failed conversions
+    .filter(({ event }) => {
+      try {
+        // Apply calendar settings filters
+        if (event.start.date && !settings.includeAllDay) return false;
+        if (!settings.includeNoLocation && !event.location && !event.hangoutLink) return false;
+        // Consider events as busy if transparency is undefined (default) or 'opaque'
+        // Only busy events should block time slots
+        // Free events (transparency: 'transparent') should not block time slots
+        return event.transparency !== 'transparent';
+      } catch (error) {
+        console.warn('Error filtering event:', error);
+        return false;
+      }
     })
     .sort((a, b) => a.start - b.start);
   logTime('Event ranges preprocessing', preprocessStartTime);
 
   // Binary search to find potential conflicts
   function findConflicts(slotStart, slotEnd) {
+    // If no events, there can't be conflicts
+    if (eventRanges.length === 0) return false;
+
     let left = 0;
     let right = eventRanges.length - 1;
     
@@ -450,16 +475,25 @@ function findAvailableSlots(events, duration, startDate, days) {
 
   let conflictChecks = 0;
   while (currentDate < endDate) {
-    if (currentDate.getDay() !== 0 && currentDate.getDay() !== 6) {
+    if (currentDate.getDay() !== 0 && currentDate.getDay() !== 6) { // Skip weekends
       const dayEnd = new Date(currentDate);
       dayEnd.setHours(workingHourEnd, 0, 0, 0);
+      
+      const dayKey = currentDate.toISOString().split('T')[0];
+      if (!slotsByDay.has(dayKey)) {
+        slotsByDay.set(dayKey, []);
+      }
 
       while (currentDate < dayEnd) {
         const slotEnd = new Date(currentDate.getTime() + durationMs);
         
         conflictChecks++;
         if (!findConflicts(currentDate, slotEnd) && slotEnd <= dayEnd) {
-          slots.push(formatTimeSlot(currentDate, slotEnd));
+          const slot = {
+            start: new Date(currentDate),
+            end: new Date(slotEnd)
+          };
+          slotsByDay.get(dayKey).push(slot);
         }
 
         currentDate = new Date(currentDate.getTime() + 30 * 60 * 1000);
@@ -471,16 +505,37 @@ function findAvailableSlots(events, duration, startDate, days) {
   }
   logTime('Slots generation', slotsGenerationStartTime);
 
+  // Select diverse slots across days
+  const selectedSlots = [];
+  const daysList = Array.from(slotsByDay.keys()).sort();
+  
+  // First pass: Get early, mid, and late slots from each day
+  for (const day of daysList) {
+    const daySlots = slotsByDay.get(day);
+    if (daySlots.length === 0) continue;
+
+    const slotsToSelect = Math.min(MAX_SLOTS_PER_DAY, daySlots.length);
+    const step = Math.max(1, Math.floor(daySlots.length / slotsToSelect));
+    
+    for (let i = 0; i < daySlots.length && selectedSlots.length < MAX_TOTAL_SLOTS; i += step) {
+      selectedSlots.push(formatTimeSlot(daySlots[i].start, daySlots[i].end));
+      if (selectedSlots.length >= MAX_SLOTS_PER_DAY) break;
+    }
+    
+    if (selectedSlots.length >= MAX_TOTAL_SLOTS) break;
+  }
+
   // Log slot finding statistics
   console.log('\n📈 Slot Finding Statistics:');
   console.table({
     'Total conflict checks': conflictChecks,
-    'Found slots': slots.length,
+    'Found slots': selectedSlots.length,
+    'Days with slots': daysList.length,
     'Events processed': eventRanges.length
   });
 
   logTime('Total slot finding time', slotStartTime);
-  return slots;
+  return selectedSlots;
 }
 
 function formatTimeSlot(start, end) {

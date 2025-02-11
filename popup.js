@@ -62,7 +62,25 @@ document.addEventListener('DOMContentLoaded', async function() {
     
     // Format each time slot
     response.slots.forEach(slot => {
-      message += `• ${slot}\n`;
+      const start = new Date(slot.start);
+      const end = new Date(slot.end);
+      
+      const formattedStart = start.toLocaleString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+      });
+      
+      const formattedEnd = end.toLocaleString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+      });
+      
+      message += `• ${formattedStart} - ${formattedEnd}\n`;
     });
 
     if (bookingLink) {

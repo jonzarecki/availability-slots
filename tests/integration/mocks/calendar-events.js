@@ -1,6 +1,6 @@
 // Mock calendar events for testing
 const mockCalendarEvents = {
-  // Regular events with participants and location
+  // Regular events with participants and location (default busy)
   regularEvents: [
     {
       id: '1',
@@ -16,6 +16,7 @@ const mockCalendarEvents = {
         { email: 'user2@example.com' }
       ],
       location: 'Conference Room A'
+      // No transparency field = default busy (opaque)
     },
     {
       id: '2',
@@ -30,27 +31,40 @@ const mockCalendarEvents = {
         { email: 'user3@example.com' }
       ],
       hangoutLink: 'https://meet.google.com/abc-defg-hij'
+      // No transparency field = default busy (opaque)
     }
   ],
 
-  // Events without participants
-  noParticipantEvents: [
+  // Free events (explicitly marked as free)
+  freeEvents: [
     {
       id: '3',
-      summary: 'Focus Time',
+      summary: 'Optional Team Social',
       start: {
-        dateTime: '2024-03-21T09:00:00-04:00'
+        dateTime: '2024-03-20T12:00:00-04:00'  // Between Team Meeting and Project Review
       },
       end: {
-        dateTime: '2024-03-21T10:00:00-04:00'
-      }
+        dateTime: '2024-03-20T13:00:00-04:00'
+      },
+      transparency: 'transparent' // Explicitly marked as free
+    },
+    {
+      id: '4',
+      summary: 'Lunch Break',
+      start: {
+        dateTime: '2024-03-20T16:00:00-04:00'  // After Project Review
+      },
+      end: {
+        dateTime: '2024-03-20T17:00:00-04:00'
+      },
+      transparency: 'transparent' // Explicitly marked as free
     }
   ],
 
   // Events without location
   noLocationEvents: [
     {
-      id: '4',
+      id: '5',
       summary: 'Quick Sync',
       start: {
         dateTime: '2024-03-21T13:00:00-04:00'
@@ -61,13 +75,14 @@ const mockCalendarEvents = {
       attendees: [
         { email: 'user4@example.com' }
       ]
+      // No transparency field = default busy (opaque)
     }
   ],
 
   // All-day events
   allDayEvents: [
     {
-      id: '5',
+      id: '6',
       summary: 'Company Holiday',
       start: {
         date: '2024-03-22'
@@ -75,6 +90,7 @@ const mockCalendarEvents = {
       end: {
         date: '2024-03-23'
       }
+      // No transparency field = default busy (opaque)
     }
   ]
 };
@@ -83,15 +99,11 @@ const mockCalendarEvents = {
 const getEventsInRange = (startDate, endDate) => {
   const allEvents = [
     ...mockCalendarEvents.regularEvents,
-    ...mockCalendarEvents.noParticipantEvents,
+    ...mockCalendarEvents.freeEvents,
     ...mockCalendarEvents.noLocationEvents,
     ...mockCalendarEvents.allDayEvents
   ];
-
-  return allEvents.filter(event => {
-    const eventStart = event.start.dateTime ? new Date(event.start.dateTime) : new Date(event.start.date);
-    return eventStart >= startDate && eventStart <= endDate;
-  });
+  return allEvents;
 };
 
 module.exports = {

@@ -40,10 +40,13 @@ describe('Availability Generation Integration Tests', () => {
     });
 
     // Mock chrome.runtime.sendMessage to resolve immediately
-    chrome.runtime.sendMessage.mockImplementation((message) => {
+    chrome.runtime.sendMessage.mockImplementation(async (message) => {
       if (message.action === 'getAvailability') {
+        // Get events from the fetch response
+        const response = await global.fetch();
+        const data = await response.json();
         const slots = findAvailableSlots(
-          mockCalendarEvents.regularEvents,
+          data.items,
           message.duration,
           mockNow,
           message.days
@@ -82,23 +85,34 @@ describe('Availability Generation Integration Tests', () => {
     });
 
     it('should respect calendar settings when filtering events', async () => {
-      // Update settings to include events without participants
+      // Update settings to include all events
       chrome.storage.sync.get.mockImplementation((keys, callback) => {
         callback({
           selectedCalendars: [{ id: 'primary', name: 'Primary Calendar' }],
-          includeNoParticipants: true,
-          includeNoLocation: false,
-          includeAllDay: false,
+          includeNoLocation: true,
+          includeAllDay: true,
           duration: '30',
           days: '5'
         });
       });
 
-      const allEvents = [
-        ...mockCalendarEvents.regularEvents,
-        ...mockCalendarEvents.noParticipantEvents
-      ];
+      // First test with busy events
+      const busyEvents = mockCalendarEvents.regularEvents;
+      global.fetch = jest.fn().mockImplementation(() => 
+        Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ items: busyEvents })
+        })
+      );
 
+      const responseWithBusyEvents = await chrome.runtime.sendMessage({
+        action: 'getAvailability',
+        duration: 30,
+        days: 5
+      });
+
+      // Then test with both busy and free events
+      const allEvents = [...mockCalendarEvents.regularEvents, ...mockCalendarEvents.freeEvents];
       global.fetch = jest.fn().mockImplementation(() => 
         Promise.resolve({
           ok: true,
@@ -106,39 +120,16 @@ describe('Availability Generation Integration Tests', () => {
         })
       );
 
-      // Update message handler to use all events
-      chrome.runtime.sendMessage.mockImplementation((message, callback) => {
-        if (message.action === 'getAvailability') {
-          const slots = findAvailableSlots(
-            allEvents,
-            message.duration,
-            mockNow,
-            message.days
-          );
-          if (callback) {
-            callback({ slots });
-          }
-          return Promise.resolve({ slots });
-        }
-        return Promise.resolve({});
-      });
-
-      const response = await chrome.runtime.sendMessage({
+      const responseWithAllEvents = await chrome.runtime.sendMessage({
         action: 'getAvailability',
         duration: 30,
         days: 5
       });
 
-      expect(response.slots).toBeDefined();
-      // Should have fewer available slots due to including no-participant events
-      expect(response.slots.length).toBeLessThan(
-        findAvailableSlots(
-          mockCalendarEvents.regularEvents,
-          30,
-          mockNow,
-          5
-        ).length
-      );
+      expect(responseWithAllEvents.slots).toBeDefined();
+      expect(responseWithBusyEvents.slots).toBeDefined();
+      // Should have the same number of slots since free events don't block time
+      expect(responseWithAllEvents.slots.length).toBe(responseWithBusyEvents.slots.length);
     });
   });
 
