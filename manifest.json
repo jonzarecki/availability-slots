@@ -1,18 +1,15 @@
 {
   "manifest_version": 3,
   "name": "Availability Slots",
-  "version": "1.0",
+  "version": "0.0.1",
   "description": "Generate availability slots from your calendar for easy sharing",
   "permissions": [
     "contextMenus",
     "storage",
-    "identity",
-    "activeTab"
+    "identity"
   ],
   "host_permissions": [
-    "https://www.googleapis.com/",
-    "*://*.google.com/*",
-    "*://*.outlook.com/*"
+    "https://www.googleapis.com/"
   ],
   "oauth2": {
     "client_id": "690366129283-srblone8r8ats4d1lt57026c3dsgo7b8.apps.googleusercontent.com",
