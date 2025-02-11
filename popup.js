@@ -73,10 +73,19 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Format the availability message
     let message = `Would any of these time windows work for a ${duration} minute meeting (${timezone})?\n\n`;
     
+    // Sort slots by date and time
+    const sortedSlots = [...response.slots].sort((a, b) => {
+      const dateA = typeof a === 'string' ? new Date(a.split(' - ')[0]) : new Date(a.start);
+      const dateB = typeof b === 'string' ? new Date(b.split(' - ')[0]) : new Date(b.start);
+      return dateA - dateB;
+    });
+
     // Format each time slot
-    response.slots.forEach(slot => {
+    sortedSlots.forEach(slot => {
       if (typeof slot === 'string') {
-        message += `• ${slot}\n`;
+        // Remove GMT timezone from string slots
+        const cleanedSlot = slot.replace(/\sGMT[+-]\d+/g, '');
+        message += `- ${cleanedSlot}\n`;
       } else {
         const start = new Date(slot.start);
         const end = new Date(slot.end);
@@ -96,7 +105,7 @@ document.addEventListener('DOMContentLoaded', async function() {
           hour12: true
         });
         
-        message += `• ${formattedStart} - ${formattedEnd}\n`;
+        message += `- ${formattedStart} - ${formattedEnd}\n`;
       }
     });
 
