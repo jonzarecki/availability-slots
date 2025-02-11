@@ -11,6 +11,8 @@ document.addEventListener('DOMContentLoaded', function() {
   const durationSelect = document.getElementById('duration');
   const daysSelect = document.getElementById('days');
   const bookingLinkInput = document.getElementById('bookingLink');
+  const maxSlotsSelect = document.getElementById('maxSlots');
+  const diversifySlotsCheckbox = document.getElementById('diversifySlots');
 
   // Load all saved settings
   chrome.storage.sync.get([
@@ -20,7 +22,9 @@ document.addEventListener('DOMContentLoaded', function() {
     'includeAllDay',
     'duration',
     'days',
-    'bookingLink'
+    'bookingLink',
+    'maxSlots',
+    'diversifySlots'
   ], function(result) {
     includeNoParticipants.checked = result.includeNoParticipants || false;
     includeNoLocation.checked = result.includeNoLocation || false;
@@ -35,6 +39,10 @@ document.addEventListener('DOMContentLoaded', function() {
     if (result.bookingLink) {
       bookingLinkInput.value = result.bookingLink;
     }
+    if (result.maxSlots) {
+      maxSlotsSelect.value = result.maxSlots;
+    }
+    diversifySlotsCheckbox.checked = result.diversifySlots !== undefined ? result.diversifySlots : true;
   });
 
   // Check authentication status on load
@@ -92,7 +100,9 @@ document.addEventListener('DOMContentLoaded', function() {
       includeAllDay: includeAllDay.checked,
       duration: durationSelect.value,
       days: daysSelect.value,
-      bookingLink: bookingLinkInput.value
+      bookingLink: bookingLinkInput.value,
+      maxSlots: maxSlotsSelect.value,
+      diversifySlots: diversifySlotsCheckbox.checked
     }, function() {
       if (chrome.runtime.lastError) {
         showToast('Error saving settings: ' + chrome.runtime.lastError.message, 'error');

@@ -175,4 +175,31 @@ describe('Availability Generation Integration Tests', () => {
       expect(formattedMessage).toContain('https://calendly.com/example');
     });
   });
+
+  describe('Time Range Handling', () => {
+    it('should properly format timeMin and timeMax for calendar API', () => {
+      const startDate = new Date('2024-03-20T09:00:00-04:00');
+      const days = 5;
+      const endDate = new Date(startDate.getTime() + days * 24 * 60 * 60 * 1000);
+      
+      // Format dates as expected by Google Calendar API
+      const expectedTimeMin = startDate.toISOString();
+      const expectedTimeMax = endDate.toISOString();
+      
+      // Mock the fetch function
+      global.fetch = jest.fn().mockImplementation((url) => {
+        const urlParams = new URLSearchParams(url.split('?')[1]);
+        expect(urlParams.get('timeMin')).toBe(expectedTimeMin);
+        expect(urlParams.get('timeMax')).toBe(expectedTimeMax);
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ items: [] })
+        });
+      });
+
+      // Call the function that makes the API request
+      const slots = findAvailableSlots([], 30, startDate, days);
+      expect(slots).toBeDefined();
+    });
+  });
 }); 

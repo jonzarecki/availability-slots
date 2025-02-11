@@ -42,13 +42,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 let cachedToken = null;
 let tokenExpiryTime = null;
 
-// Cache for calendar events
-const calendarEventsCache = {
-  events: null,
-  timestamp: null,
-  timeMin: null,
-  timeMax: null
-};
+// Cache for calendar events - store per calendar
+const calendarEventsCache = new Map();
 
 // Cache expiration time in milliseconds (1 minute)
 const CACHE_EXPIRATION = 60 * 1000;
@@ -58,6 +53,13 @@ function roundToMinute(date) {
   const d = new Date(date);
   d.setSeconds(0, 0);
   return d.getTime();
+}
+
+// Helper function to normalize time string to minute precision
+function normalizeTimeString(timeString) {
+  const date = new Date(timeString);
+  date.setSeconds(0, 0);
+  return date.toISOString();
 }
 
 async function getAuthToken() {
@@ -243,7 +245,68 @@ function logTime(label, startTime) {
   return duration;
 }
 
+// Helper function to check if cache is valid
+function isCacheValid(calendar, timeMin, timeMax) {
+  console.log('\n🔍 Checking cache for calendar:', calendar.id);
+  const cacheEntry = calendarEventsCache.get(calendar.id);
+  
+  if (!cacheEntry) {
+    console.log('❌ No cache entry found');
+    return false;
+  }
+  
+  const now = Date.now();
+  const cacheAge = now - cacheEntry.timestamp;
+  const isExpired = cacheAge >= CACHE_EXPIRATION;
+  
+  // Normalize time ranges for comparison
+  const normalizedRequestedTimeMin = normalizeTimeString(timeMin);
+  const normalizedRequestedTimeMax = normalizeTimeString(timeMax);
+  const normalizedCachedTimeMin = normalizeTimeString(cacheEntry.timeMin);
+  const normalizedCachedTimeMax = normalizeTimeString(cacheEntry.timeMax);
+  
+  // Compare time ranges
+  console.log('Time range comparison:', {
+    cached: {
+      timeMin: normalizedCachedTimeMin,
+      timeMax: normalizedCachedTimeMax
+    },
+    requested: {
+      timeMin: normalizedRequestedTimeMin,
+      timeMax: normalizedRequestedTimeMax
+    }
+  });
+  
+  const timeRangeMatch = normalizedCachedTimeMin === normalizedRequestedTimeMin && 
+                        normalizedCachedTimeMax === normalizedRequestedTimeMax;
+  
+  console.log('Cache diagnostics:', {
+    hasEvents: cacheEntry.events !== null,
+    cacheAge: `${(cacheAge / 1000).toFixed(1)}s`,
+    isExpired,
+    timeRangeMatch
+  });
+
+  const isValid = cacheEntry.events !== null &&
+                 !isExpired &&
+                 timeRangeMatch;
+
+  console.log(isValid ? '✅ Cache valid' : '❌ Cache invalid');
+  return isValid;
+}
+
 async function fetchCalendarEvents(token, calendar, timeMin, timeMax) {
+  console.log(`\n📅 Processing calendar: ${calendar.id}`);
+  
+  // Check if we have valid cached events
+  if (isCacheValid(calendar, timeMin, timeMax)) {
+    console.log('💾 Using cached events');
+    const cachedEvents = calendarEventsCache.get(calendar.id).events;
+    console.log(`Found ${cachedEvents.length} events in cache`);
+    return cachedEvents;
+  }
+
+  console.log('🌐 Fetching fresh events from API');
   const response = await fetch(
     `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendar.id)}/events?` +
     `timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime`, {
@@ -258,122 +321,106 @@ async function fetchCalendarEvents(token, calendar, timeMin, timeMax) {
   }
   
   const data = await response.json();
-  return data.items || [];
+  const events = data.items || [];
+  console.log(`Fetched ${events.length} events from API`);
+
+  // Update cache for this calendar
+  console.log('💾 Updating cache');
+  calendarEventsCache.set(calendar.id, {
+    events,
+    timestamp: Date.now(),
+    timeMin,
+    timeMax
+  });
+
+  return events;
 }
 
 async function getAvailabilitySlots(request, sendResponse) {
-  const totalStartTime = performance.now();
+  const startTime = performance.now();
+  let fetchDuration = 0;
+  let cacheHits = 0;
+  
   try {
-    // Time token acquisition
-    const tokenStartTime = performance.now();
-    const token = await getAuthToken();
-    logTime('Token acquisition', tokenStartTime);
+    console.log('\n📅 Processing availability request - Full request:', request);
+    console.log('Request parameters:', {
+      timeMin: request.timeMin,
+      timeMax: request.timeMax,
+      duration: request.duration,
+      days: request.days,
+      settings: request.settings
+    });
 
-    const { duration, days } = request;
+    // Ensure timeMin and timeMax are properly formatted and normalized ISO strings
+    const timeMin = normalizeTimeString(request.timeMin);
+    const timeMax = normalizeTimeString(request.timeMax);
 
-    // Time settings retrieval
-    const settingsStartTime = performance.now();
     const settings = await chrome.storage.sync.get([
       'selectedCalendars',
+      'includeNoParticipants',
       'includeNoLocation',
       'includeAllDay'
     ]);
-    logTime('Settings retrieval', settingsStartTime);
 
-    if (!settings.selectedCalendars || settings.selectedCalendars.length === 0) {
-      throw new Error('No calendars selected. Please select calendars in the extension settings.');
-    }
+    // Merge request settings with stored settings
+    const mergedSettings = {
+      ...settings,
+      ...(request.settings || {})
+    };
 
-    // Calculate time range
-    const now = new Date();
-    const timeMin = now.toISOString();
-    const timeMax = new Date(now.getTime() + days * 24 * 60 * 60 * 1000).toISOString();
-
-    // Time calendar fetching
+    // Get events from all selected calendars
+    const allEvents = [];
+    const token = await getAuthToken();
     const fetchStartTime = performance.now();
-    let calendarResults;
-    let cacheHit = false;
-    const currentTime = Date.now();
-    
-    // Check if we have valid cached data with minute-level precision
-    const isCacheValid = calendarEventsCache.events && 
-                        calendarEventsCache.timestamp && 
-                        (currentTime - calendarEventsCache.timestamp) < CACHE_EXPIRATION &&
-                        roundToMinute(calendarEventsCache.timeMin) === roundToMinute(timeMin) &&
-                        roundToMinute(calendarEventsCache.timeMax) === roundToMinute(timeMax);
 
-    if (isCacheValid) {
-      console.log('📦 Using cached calendar events');
-      calendarResults = calendarEventsCache.events;
-      cacheHit = true;
-    } else {
-      console.log('🔄 Fetching fresh calendar events');
-      // Fetch events from all selected calendars in parallel
-      const calendarPromises = settings.selectedCalendars.map(calendar =>
-        fetchCalendarEvents(token, calendar, timeMin, timeMax)
-      );
-
-      // Wait for all calendar requests to complete
-      calendarResults = await Promise.all(calendarPromises);
-      
-      // Update cache
-      calendarEventsCache.events = calendarResults;
-      calendarEventsCache.timestamp = currentTime;
-      calendarEventsCache.timeMin = timeMin;
-      calendarEventsCache.timeMax = timeMax;
-      cacheHit = false;
+    for (const calendar of settings.selectedCalendars || []) {
+      const events = await fetchCalendarEvents(token, calendar, timeMin, timeMax);
+      if (calendarEventsCache.get(calendar.id)?.events === events) {
+        cacheHits++;
+      }
+      allEvents.push(...events);
     }
-    
-    const fetchDuration = logTime('Calendar events fetching', fetchStartTime);
-    
-    // Time event processing
-    const processingStartTime = performance.now();
-    
-    // Combine and filter all events
-    const allEvents = calendarResults.flat().filter(event => {
-      if (!settings.includeAllDay && event.start.date) return false;
-      if (!settings.includeNoLocation && !event.location && !event.hangoutLink) return false;
-      // Only consider events marked as busy (transparency is undefined or 'opaque')
-      if (event.transparency === 'transparent') return false;
-      return true;
-    });
 
-    // Sort events by start time
-    allEvents.sort((a, b) => {
-      const aStart = new Date(a.start.dateTime || a.start.date);
-      const bStart = new Date(b.start.dateTime || b.start.date);
-      return aStart - bStart;
-    });
-    logTime('Event processing (filtering & sorting)', processingStartTime);
+    fetchDuration = performance.now() - fetchStartTime;
 
-    // Time slot finding
-    const slotFindingStartTime = performance.now();
-    const availableSlots = findAvailableSlots(allEvents, duration, now, days, settings);
-    logTime('Finding available slots', slotFindingStartTime);
-    
-    const totalDuration = logTime('Total execution time', totalStartTime);
-    
-    // Log summary with cache details
+    // Find available slots
+    const slots = findAvailableSlots(
+      allEvents,
+      request.duration,
+      new Date(timeMin),
+      request.days,
+      mergedSettings
+    );
+
+    const totalDuration = performance.now() - startTime;
+
+    // Log performance summary
     console.log('\n📊 Performance Summary:');
     console.table({
-      'Number of calendars': settings.selectedCalendars.length,
+      'Number of calendars': settings.selectedCalendars?.length || 0,
       'Number of events (after filtering)': allEvents.length,
-      'Number of available slots': availableSlots ? availableSlots.length : 0,
+      'Number of available slots': slots?.length || 0,
       'Total time (ms)': totalDuration.toFixed(2),
-      'Cache hit': cacheHit,
+      'Cache hits': cacheHits,
       'Calendar fetch time (ms)': fetchDuration.toFixed(2),
-      'Cache age (ms)': cacheHit ? currentTime - calendarEventsCache.timestamp : 'N/A'
+      'Cache hit ratio': `${((cacheHits / (settings.selectedCalendars?.length || 1)) * 100).toFixed(1)}%`
     });
 
-    if (!availableSlots || availableSlots.length === 0) {
-      sendResponse({ slots: [], message: 'No available slots found in the selected time range.' });
-    } else {
-      sendResponse({ slots: availableSlots });
-    }
+    sendResponse({ slots });
   } catch (error) {
-    console.error('Error in getAvailabilitySlots:', error);
-    logTime('Total execution time (with error)', totalStartTime);
-    sendResponse({ error: error.message, slots: [] });
+    console.error('Error getting availability:', error);
+    const totalDuration = performance.now() - startTime;
+    
+    // Log error performance summary
+    console.log('\n❌ Error Performance Summary:');
+    console.table({
+      'Total time until error (ms)': totalDuration.toFixed(2),
+      'Calendar fetch time (ms)': fetchDuration.toFixed(2),
+      'Cache hits before error': cacheHits,
+      'Error message': error.message
+    });
+    
+    sendResponse({ error: error.message });
   }
 }
 
@@ -381,24 +428,20 @@ function findAvailableSlots(events = [], duration = 30, startDate = new Date(), 
   // Default settings
   const defaultSettings = {
     includeAllDay: false,
-    includeNoLocation: true
+    includeNoLocation: true,
+    maxSlots: 0,
+    diversify: false
   };
   settings = { ...defaultSettings, ...settings };
 
   const slotStartTime = performance.now();
-  const slotsByDay = new Map(); // Group slots by day
   const durationMs = duration * 60 * 1000;
   startDate = new Date(startDate); // Ensure startDate is a Date object
   const endDate = new Date(startDate.getTime() + days * 24 * 60 * 60 * 1000);
-  
+
   // Working hours: 9 AM to 5 PM
   const workingHourStart = 9;
   const workingHourEnd = 17;
-  
-  // Calculate max slots based on duration and days
-  const slotsPerDay = Math.floor((workingHourEnd - workingHourStart) * 60 / duration);
-  const MAX_SLOTS_PER_DAY = Math.max(2, Math.min(Math.floor(slotsPerDay / 2), 6)); // At least 2, at most 6 slots per day, scaled by duration
-  const MAX_TOTAL_SLOTS = Math.max(4, Math.min(MAX_SLOTS_PER_DAY * days, 16)); // At least 4, at most 16 total slots
 
   // Time event preprocessing
   const preprocessStartTime = performance.now();
@@ -469,73 +512,179 @@ function findAvailableSlots(events = [], duration = 30, startDate = new Date(), 
     return false;
   }
 
-  const slotsGenerationStartTime = performance.now();
+  let conflictChecks = 0;
+  const slotsByDay = {};
+  let slots = [];
+  
+  // Initialize currentDate to start of working hours on startDate
   let currentDate = new Date(startDate);
   currentDate.setHours(workingHourStart, 0, 0, 0);
+  
+  // Process each day
+  let daysProcessed = 0;
+  while (currentDate < endDate && daysProcessed < days) {
+    // Skip weekends
+    if (currentDate.getDay() === 0 || currentDate.getDay() === 6) {
+      currentDate = new Date(currentDate.getTime() + 24 * 60 * 60 * 1000);
+      currentDate.setHours(workingHourStart, 0, 0, 0);
+      continue;
+    }
 
-  let conflictChecks = 0;
-  while (currentDate < endDate) {
-    if (currentDate.getDay() !== 0 && currentDate.getDay() !== 6) { // Skip weekends
-      const dayEnd = new Date(currentDate);
-      dayEnd.setHours(workingHourEnd, 0, 0, 0);
+    const dayStart = new Date(currentDate);
+    const dayEnd = new Date(currentDate);
+    dayStart.setHours(workingHourStart, 0, 0, 0);
+    dayEnd.setHours(workingHourEnd, 0, 0, 0);
+
+    // Skip to next day if we're past the end time for today
+    if (currentDate > dayEnd) {
+      currentDate = new Date(currentDate.getTime() + 24 * 60 * 60 * 1000);
+      currentDate.setHours(workingHourStart, 0, 0, 0);
+      continue;
+    }
+
+    // Start from the later of dayStart or currentDate
+    const slotStart = new Date(Math.max(dayStart.getTime(), currentDate.getTime()));
+
+    // Group slots by day for diversification
+    const day = formatTimeSlot(slotStart, slotStart).split(',')[0];
+    if (!slotsByDay[day]) slotsByDay[day] = [];
+
+    // Calculate max slots per day based on settings
+    const maxSlotsPerDay = settings?.maxSlots > 0
+      ? Math.ceil(settings.maxSlots / 2) // Allow up to half of maxSlots per day
+      : Infinity;
+
+    while (slotStart < dayEnd) {
+      const slotEnd = new Date(slotStart.getTime() + durationMs);
       
-      const dayKey = currentDate.toISOString().split('T')[0];
-      if (!slotsByDay.has(dayKey)) {
-        slotsByDay.set(dayKey, []);
-      }
-
-      while (currentDate < dayEnd) {
-        const slotEnd = new Date(currentDate.getTime() + durationMs);
+      conflictChecks++;
+      if (!findConflicts(slotStart, slotEnd) && slotEnd <= dayEnd) {
+        const slot = formatTimeSlot(slotStart, slotEnd);
         
-        conflictChecks++;
-        if (!findConflicts(currentDate, slotEnd) && slotEnd <= dayEnd) {
-          const slot = {
-            start: new Date(currentDate),
-            end: new Date(slotEnd)
-          };
-          slotsByDay.get(dayKey).push(slot);
+        // Only add the slot if we haven't exceeded maxSlotsPerDay
+        if (slotsByDay[day].length < maxSlotsPerDay) {
+          slotsByDay[day].push(slot);
         }
 
-        currentDate = new Date(currentDate.getTime() + 30 * 60 * 1000);
+        // Break early if we have enough slots and not diversifying
+        if (!settings?.diversify && settings?.maxSlots > 0 && 
+            Object.values(slotsByDay).flat().length >= settings.maxSlots) {
+          break;
+        }
       }
+      
+      slotStart.setTime(slotStart.getTime() + 30 * 60 * 1000);
+    }
+
+    // Break early if we have enough slots and not diversifying
+    if (!settings?.diversify && settings?.maxSlots > 0 && 
+        Object.values(slotsByDay).flat().length >= settings.maxSlots) {
+      break;
     }
     
     currentDate = new Date(currentDate.getTime() + 24 * 60 * 60 * 1000);
     currentDate.setHours(workingHourStart, 0, 0, 0);
+    daysProcessed++;
   }
-  logTime('Slots generation', slotsGenerationStartTime);
 
-  // Select diverse slots across days
-  const selectedSlots = [];
-  const daysList = Array.from(slotsByDay.keys()).sort();
-  
-  // First pass: Get early, mid, and late slots from each day
-  for (const day of daysList) {
-    const daySlots = slotsByDay.get(day);
-    if (daySlots.length === 0) continue;
+  // Handle maxSlots and diversification
+  console.log('\n🔍 Debug - Settings:', {
+    maxSlots: settings?.maxSlots,
+    diversify: settings?.diversify,
+    totalSlots: Object.values(slotsByDay).flat().length,
+    daysAvailable: Object.keys(slotsByDay).length
+  });
 
-    const slotsToSelect = Math.min(MAX_SLOTS_PER_DAY, daySlots.length);
-    const step = Math.max(1, Math.floor(daySlots.length / slotsToSelect));
+  if (settings?.maxSlots > 0) {
+    console.log('\n🔍 Diversification Debug:');
+    console.log('Total days available:', Object.keys(slotsByDay).length);
+    console.log('Days:', Object.keys(slotsByDay));
+    console.log('Max slots requested:', settings.maxSlots);
+    console.log('Slots per day:', Object.entries(slotsByDay).map(([day, slots]) => `${day}: ${slots.length}`));
     
-    for (let i = 0; i < daySlots.length && selectedSlots.length < MAX_TOTAL_SLOTS; i += step) {
-      selectedSlots.push(formatTimeSlot(daySlots[i].start, daySlots[i].end));
-      if (selectedSlots.length >= MAX_SLOTS_PER_DAY) break;
+    const totalAvailableSlots = Object.values(slotsByDay).flat().length;
+    
+    // If we have fewer slots than maxSlots, return all available slots
+    if (totalAvailableSlots <= settings.maxSlots) {
+      slots = Object.values(slotsByDay).flat();
+    } else if (settings.diversify) {
+      const days = Object.keys(slotsByDay).sort((a, b) => a.localeCompare(b));
+      const diverseSlots = [];
+      
+      // Calculate how many slots to take per day
+      let remainingSlots = settings.maxSlots;
+      
+      // Take slots from each day
+      for (const day of days) {
+        if (remainingSlots <= 0) break;
+        
+        const daySlots = slotsByDay[day];
+        const daysLeft = days.length - days.indexOf(day);
+        const isLastDay = daysLeft === 1;
+        
+        // For all days except the last one, take floor(remainingSlots / daysLeft)
+        // For the last day, take all remaining slots
+        const slotsToTake = isLastDay
+          ? remainingSlots
+          : Math.min(
+              Math.floor(remainingSlots / daysLeft), // Distribute remaining slots evenly
+              daySlots.length
+            );
+        
+        console.log(`\nProcessing ${day}:`);
+        console.log('- Days left:', daysLeft);
+        console.log('- Remaining slots:', remainingSlots);
+        console.log('- Available slots for day:', daySlots.length);
+        console.log('- Slots to take:', slotsToTake);
+        
+        diverseSlots.push(...daySlots.slice(0, slotsToTake));
+        remainingSlots -= slotsToTake;
+        
+        console.log('- Total slots collected so far:', diverseSlots.length);
+        console.log('- Remaining slots after:', remainingSlots);
+      }
+      
+      console.log('\nFinal Results:');
+      console.log('Total slots collected:', diverseSlots.length);
+      console.log('Slots per day:', diverseSlots.reduce((acc, slot) => {
+        const day = slot.split(',')[0];
+        acc[day] = (acc[day] || 0) + 1;
+        return acc;
+      }, {}));
+      
+      slots = diverseSlots;
+    } else {
+      // If not diversifying, just take the first maxSlots slots
+      slots = Object.values(slotsByDay)
+        .flat()
+        .slice(0, settings.maxSlots);
     }
-    
-    if (selectedSlots.length >= MAX_TOTAL_SLOTS) break;
+  } else {
+    slots = Object.values(slotsByDay).flat();
   }
+
+  // Sort all slots by time within their days
+  slots.sort((a, b) => {
+    const [dayA, timeA] = a.split(', ');
+    const [dayB, timeB] = b.split(', ');
+    if (dayA === dayB) {
+      return new Date(`2024-01-01 ${timeA.split(' - ')[0]}`).getTime() -
+             new Date(`2024-01-01 ${timeB.split(' - ')[0]}`).getTime();
+    }
+    return dayA.localeCompare(dayB);
+  });
 
   // Log slot finding statistics
   console.log('\n📈 Slot Finding Statistics:');
   console.table({
     'Total conflict checks': conflictChecks,
-    'Found slots': selectedSlots.length,
-    'Days with slots': daysList.length,
+    'Found slots': slots.length,
+    'Days with slots': new Set(slots.map(s => s.split(',')[0])).size,
     'Events processed': eventRanges.length
   });
 
   logTime('Total slot finding time', slotStartTime);
-  return selectedSlots;
+  return slots;
 }
 
 function formatTimeSlot(start, end) {
@@ -557,7 +706,7 @@ function formatTimeSlot(start, end) {
 // Export functions for testing
 if (typeof module !== 'undefined' && module.exports) {
   const exportedFunctions = {
-    findAvailableSlots: (events, duration, startDate, days) => findAvailableSlots(events, duration, startDate, days),
+    findAvailableSlots: (events, duration, startDate, days, settings) => findAvailableSlots(events, duration, startDate, days, settings),
     formatTimeSlot: (start, end) => formatTimeSlot(start, end),
     getAvailabilitySlots: (request, sendResponse) => getAvailabilitySlots(request, sendResponse),
     checkAuthStatus: (sendResponse) => checkAuthStatus(sendResponse),

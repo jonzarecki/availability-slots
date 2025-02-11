@@ -22,7 +22,9 @@ document.addEventListener('DOMContentLoaded', async function() {
       'duration',
       'days',
       'bookingLink',
-      'selectedCalendars'
+      'selectedCalendars',
+      'maxSlots',
+      'diversifySlots'
     ]);
 
     // Check if calendars are selected
@@ -34,15 +36,26 @@ document.addEventListener('DOMContentLoaded', async function() {
     const duration = settings.duration || 30;
     const days = settings.days || 5;
     const bookingLink = settings.bookingLink || '';
+    const maxSlots = settings.maxSlots || 5;
+    const diversifySlots = settings.diversifySlots !== undefined ? settings.diversifySlots : true;
 
     // Get the user's timezone
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
     // Get free slots from the background script
+    const startDate = new Date();
+    const endDate = new Date(startDate.getTime() + parseInt(days) * 24 * 60 * 60 * 1000);
+    
     const response = await chrome.runtime.sendMessage({
       action: 'getAvailability',
       duration: parseInt(duration),
-      days: parseInt(days)
+      days: parseInt(days),
+      timeMin: startDate.toISOString(),
+      timeMax: endDate.toISOString(),
+      settings: {
+        maxSlots: parseInt(maxSlots),
+        diversify: diversifySlots
+      }
     });
 
     if (response.error) {

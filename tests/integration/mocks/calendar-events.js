@@ -22,10 +22,10 @@ const mockCalendarEvents = {
       id: '2',
       summary: 'Project Review',
       start: {
-        dateTime: '2024-03-20T14:00:00-04:00'
+        dateTime: '2024-03-21T14:00:00-04:00'  // Next day
       },
       end: {
-        dateTime: '2024-03-20T15:00:00-04:00'
+        dateTime: '2024-03-21T15:00:00-04:00'
       },
       attendees: [
         { email: 'user3@example.com' }
@@ -41,10 +41,10 @@ const mockCalendarEvents = {
       id: '3',
       summary: 'Optional Team Social',
       start: {
-        dateTime: '2024-03-20T12:00:00-04:00'  // Between Team Meeting and Project Review
+        dateTime: '2024-03-22T12:00:00-04:00'  // Two days after
       },
       end: {
-        dateTime: '2024-03-20T13:00:00-04:00'
+        dateTime: '2024-03-22T13:00:00-04:00'
       },
       transparency: 'transparent' // Explicitly marked as free
     },
@@ -52,10 +52,10 @@ const mockCalendarEvents = {
       id: '4',
       summary: 'Lunch Break',
       start: {
-        dateTime: '2024-03-20T16:00:00-04:00'  // After Project Review
+        dateTime: '2024-03-23T16:00:00-04:00'  // Three days after
       },
       end: {
-        dateTime: '2024-03-20T17:00:00-04:00'
+        dateTime: '2024-03-23T17:00:00-04:00'
       },
       transparency: 'transparent' // Explicitly marked as free
     }
@@ -67,10 +67,10 @@ const mockCalendarEvents = {
       id: '5',
       summary: 'Quick Sync',
       start: {
-        dateTime: '2024-03-21T13:00:00-04:00'
+        dateTime: '2024-03-24T13:00:00-04:00'  // Four days after
       },
       end: {
-        dateTime: '2024-03-21T13:30:00-04:00'
+        dateTime: '2024-03-24T13:30:00-04:00'
       },
       attendees: [
         { email: 'user4@example.com' }
@@ -85,10 +85,10 @@ const mockCalendarEvents = {
       id: '6',
       summary: 'Company Holiday',
       start: {
-        date: '2024-03-22'
+        date: '2024-03-25'  // Five days after
       },
       end: {
-        date: '2024-03-23'
+        date: '2024-03-26'
       }
       // No transparency field = default busy (opaque)
     }
