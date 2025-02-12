@@ -7,7 +7,9 @@
     "test:watch": "jest --watch",
     "test:ci": "jest --coverage --ci --runInBand",
     "clean": "node -e \"require('fs').rmSync('coverage', { recursive: true, force: true })\"",
-    "build": "node build.js"
+    "build": "node build.js",
+    "zip": "cd dist && zip -r ../extension.zip ./*",
+    "prepare-publish": "npm run test && npm run build && npm run zip"
   },
   "devDependencies": {
     "@jest/globals": "^27.5.1",
