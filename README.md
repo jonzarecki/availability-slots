@@ -1,6 +1,7 @@
 # Availability Slots Chrome Extension
 
 A Chrome extension that helps you quickly share your availability from Google Calendar. Perfect for scheduling meetings and responding to availability requests.
+[Store Link](https://chromewebstore.google.com/detail/availability-slots/hifjjfcaijgndblbjnkhadkaajbkkipj).
 
 ## Features
 
